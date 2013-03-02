@@ -30,8 +30,9 @@ Provides an interface to LightWaveRF modules via the LightWaveRF Wifi Link.
 
 use Moose;
 use IO::Socket::INET;
+use IO::Select;
 
-our $VERSION = 0.02;
+our $VERSION = 0.04;
 
 has '_devices' => (is => 'rw', default => sub{{}});
 has '_current_msg_id' => (is => 'rw', default => 0 );
@@ -110,9 +111,62 @@ sub _send_status {
     $sock->send($broadcast_string);
 }
 
+=head2 get_kwh
+
+returns the current wattage from the power meter
+
+=cut
+sub get_kwh {
+	#This routine is horrible and completely needs refactoring
+	my $self = shift;
+
+
+	my $sel = IO::Select->new;
+	my $in_sock = IO::Socket::INET -> new (LocalPort  => 9761,
+                                     Broadcast  =>  1,
+                                     Proto      => 'udp')
+            or die "Failed to bind to socket: $@";
+
+	$sel->add($in_sock);
+	my $timeout = 2;
+	my $mess;    
+
+
+	my $sock = IO::Socket::INET->new(
+		PeerPort  => $self->_port,
+		PeerAddr  => inet_ntoa(INADDR_BROADCAST),
+		Proto     => 'udp',    
+		Broadcast => 1 ) 
+    or die "Can't bind : $@\n";
+
+    $sock->send("@?W|EcoQuery");
+
+
+	while (1) { 
+   		my @r = $sel->can_read($timeout);
+   		unless (@r) { last; } #Tiemout
+   		$in_sock -> recv ($mess, 1024);
+   		last;
+	}
+
+	return unless($mess);
+	$mess =~ /W=(\d*)\,(\d*)\,(\d*),(\d*)/;
+	my $watts = $1;
+
+	return $watts/1000;
+
+}
+
 
 =head1 AUTHOR 
  Graeme Lawton <graeme@per.ly>
 =cut
 
+=head2 Development
+
+This module is very much under development and not really production ready yet 
+and there is lots of functinality still to be added to it. Patches welcome git 
+repo is at https://github.com/grim8634/LightWaveRF.git
+
+=cut
 1;
